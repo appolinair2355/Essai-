@@ -1,11 +1,13 @@
 """
 Main entry point for the Telegram bot deployment on render.com (POLLING MODE)
+Implémente le 'Double Démarrage' (Polling en thread + Flask Health Check)
 """
 import os
 import logging
 import threading
-from flask import Flask
-from bot import TelegramBot # Assurez-vous que bot.py expose une méthode de démarrage du Polling
+import time
+from flask import Flask, jsonify
+from bot import TelegramBot
 from config import Config
 
 # Configure logging
@@ -23,58 +25,74 @@ config = Config()
 bot_token = config.BOT_TOKEN
 if not bot_token:
     raise ValueError("BOT_TOKEN is required")
-bot = TelegramBot(bot_token) # Supposons que ceci initialise la librairie de bot
+bot = TelegramBot(bot_token)
 
-# --- NOUVELLE FONCTION : DÉMARRAGE DU POLLING ---
+# Thread global pour le statut du bot
+bot_thread = None
+
+# --- FONCTION DE DÉMARRAGE DU POLLING (CORRIGÉE) ---
 def start_polling_process():
-    """Lance le bot en mode Polling."""
+    """Lance le bot en mode Polling et gère les mises à jour et l'offset."""
     logger.info("🤖 Démarrage du bot en mode Polling...")
     
+    # ÉTAPE CRUCIALE 1 : S'assurer qu'aucun webhook n'est configuré
     try:
-        # 🚨 ATTENTION : Vous devez utiliser la fonction de Polling spécifique à votre librairie de bot
-        # Exemples (adaptez à votre librairie) :
-        
-        # Exemple 1: Si votre bot est basé sur 'python-telegram-bot' (Updater/Application)
-        # application.run_polling() 
-        
-        # Exemple 2: Si vous utilisez un simple 'while True' loop avec bot.get_updates()
-        # bot.run_polling_loop() 
-
-        # Exemple 3: Si votre classe TelegramBot a une méthode start_polling
-        bot.start_polling() # <-- C'est l'hypothèse la plus probable pour le Polling
-        
-        logger.info("✅ Polling du bot démarré avec succès et actif.")
+        bot.delete_webhook() 
+        logger.info("✅ Webhook supprimé avec succès.")
     except Exception as e:
-        logger.error(f"❌ Erreur critique lors du démarrage du Polling : {e}")
-        
+        logger.error(f"Erreur lors de la suppression du Webhook : {e}")
+
+    offset = None 
+    
+    while True:
+        try:
+            # Récupère les updates via Long Polling
+            updates = bot.get_updates(offset=offset, timeout=30)
+            
+            if updates:
+                logger.info(f"📥 {len(updates)} nouvelles mises à jour reçues.")
+                
+                for update in updates:
+                    # ÉTAPE CRUCIALE 2 : Traiter l'update
+                    bot.handle_update(update) 
+                    
+                    # Mise à jour de l'offset pour la prochaine requête
+                    update_id = update.get('update_id')
+                    if update_id is not None:
+                        offset = update_id + 1
+                        
+            # Si aucune update, la boucle continue après 30s (long polling)
+            
+        except Exception as e:
+            # Log l'erreur et attend avant de réessayer
+            logger.error(f"❌ Erreur critique dans la boucle de Polling : {e}. Nouvelle tentative dans 5s.")
+            time.sleep(5)
+
 # --- ENDPOINTS POUR RENDER.COM (HEALTH CHECK) ---
-# Nous gardons ces routes pour satisfaire l'exigence du PORT de Render
 @app.route('/health', methods=['GET'])
 def health_check():
-    """Health check endpoint for render.com"""
-    # Si le thread du bot est actif, tout va bien
-    if bot_thread.is_alive():
-        return {'status': 'healthy', 'service': 'telegram-bot'}, 200
-    return {'status': 'unhealthy', 'service': 'telegram-bot'}, 503
+    """Health check endpoint pour Render.com."""
+    if bot_thread and bot_thread.is_alive():
+        return jsonify({'status': 'healthy', 'service': 'telegram-bot-polling'}), 200
+    
+    logger.error("❌ Thread de Polling inactif!")
+    return jsonify({'status': 'unhealthy', 'service': 'telegram-bot-polling', 'error': 'Polling thread died'}), 503
 
 @app.route('/', methods=['GET'])
 def home():
-    """Root endpoint"""
-    return {'message': 'Telegram Bot is running in POLLING mode', 'status': 'active'}, 200
+    """Endpoint racine."""
+    return jsonify({'message': 'Telegram Bot is running in POLLING mode', 'status': 'active'}), 200
 
-# Global thread variable for the bot
-bot_thread = None
-
+# --- DÉMARRAGE PRINCIPAL ---
 if __name__ == '__main__':
-    # 1. Crée et lance le thread de Polling
+    
+    # 1. Crée et lance le thread de Polling (le bot)
+    logger.info("Démarrage du Thread de Polling...")
     bot_thread = threading.Thread(target=start_polling_process)
-    bot_thread.daemon = True # Permet au programme de se fermer si le thread principal meurt
+    bot_thread.daemon = True 
     bot_thread.start()
 
-    # 2. Récupère le port
-    port = int(os.getenv('PORT') or 5000)
-    logger.info(f"Serveur Flask démarré sur le port {port} pour Render.com (Health Check).")
-
-    # 3. Démarre l'application Flask pour écouter sur le PORT requis par Render
-    app.run(host='0.0.0.0', port=port, debug=False)
-
+    # 2. Démarre l'application Flask (Health Check) sur le PORT requis par Render
+    logger.info(f"Serveur Flask (Health Check) démarré sur le port {config.PORT}.")
+    app.run(host='0.0.0.0', port=config.PORT, debug=False)
+    
