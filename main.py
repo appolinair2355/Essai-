@@ -9,6 +9,8 @@ import time
 from flask import Flask, jsonify
 from bot import TelegramBot
 from config import Config
+# 💡 IMPORT CRUCIAL : Importation de la fonction de traitement
+from handlers import process_update 
 
 # Configure logging
 logging.basicConfig(
@@ -32,10 +34,10 @@ bot_thread = None
 
 # --- FONCTION DE DÉMARRAGE DU POLLING (CORRIGÉE) ---
 def start_polling_process():
-    """Lance le bot en mode Polling et gère les mises à jour et l'offset."""
+    """Lance le bot en mode Polling, gère les mises à jour, l'offset et appelle le handler."""
     logger.info("🤖 Démarrage du bot en mode Polling...")
     
-    # ÉTAPE CRUCIALE 1 : S'assurer qu'aucun webhook n'est configuré
+    # ÉTAPE 1 : S'assurer qu'aucun webhook n'est configuré
     try:
         bot.delete_webhook() 
         logger.info("✅ Webhook supprimé avec succès.")
@@ -53,18 +55,15 @@ def start_polling_process():
                 logger.info(f"📥 {len(updates)} nouvelles mises à jour reçues.")
                 
                 for update in updates:
-                    # ÉTAPE CRUCIALE 2 : Traiter l'update
-                    bot.handle_update(update) 
+                    # 💡 CORRECTION : Appeler la fonction de traitement (handlers.py)
+                    process_update(bot, update)
                     
                     # Mise à jour de l'offset pour la prochaine requête
                     update_id = update.get('update_id')
                     if update_id is not None:
                         offset = update_id + 1
                         
-            # Si aucune update, la boucle continue après 30s (long polling)
-            
         except Exception as e:
-            # Log l'erreur et attend avant de réessayer
             logger.error(f"❌ Erreur critique dans la boucle de Polling : {e}. Nouvelle tentative dans 5s.")
             time.sleep(5)
 
@@ -95,4 +94,4 @@ if __name__ == '__main__':
     # 2. Démarre l'application Flask (Health Check) sur le PORT requis par Render
     logger.info(f"Serveur Flask (Health Check) démarré sur le port {config.PORT}.")
     app.run(host='0.0.0.0', port=config.PORT, debug=False)
-    
+        
