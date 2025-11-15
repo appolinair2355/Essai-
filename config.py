@@ -1,6 +1,5 @@
 """
 Fichier de configuration : Charge les variables d'environnement
-Avec IDs pré-configurés pour le déploiement
 Détection automatique de l'environnement (Replit vs Render.com)
 """
 import os
@@ -23,18 +22,14 @@ class Config:
         self.PREDICTION_CHANNEL_ID = os.environ.get('PREDICTION_CHANNEL_ID') or DEFAULT_PREDICTION_CHANNEL_ID
         self.ADMIN_CHAT_ID = os.environ.get('ADMIN_CHAT_ID')
         
-        # Port intelligent : Replit utilise 10000, Render utilise son port dynamique
-        if self.IS_REPLIT:
-            self.PORT = 10000
-        else:
-            self.PORT = int(os.environ.get('PORT') or 10000)
+        # Port pour le serveur Flask de Health Check (obligatoire pour Render.com)
+        self.PORT = int(os.environ.get('PORT') or 5000)
         
         # Validation et logs détaillés
         logger.info("=" * 50)
         logger.info("🔧 Configuration du Bot")
         logger.info("=" * 50)
         
-        # Afficher l'environnement détecté
         if self.IS_REPLIT:
             logger.info("🏠 Environnement détecté: REPLIT")
         elif self.IS_RENDER:
@@ -47,13 +42,14 @@ class Config:
         else:
             logger.info(f"✅ BOT_TOKEN configuré (longueur: {len(self.BOT_TOKEN)})")
         
-        logger.info(f"✅ TARGET_CHANNEL_ID: {self.TARGET_CHANNEL_ID} (pré-configuré)")
-        logger.info(f"✅ PREDICTION_CHANNEL_ID: {self.PREDICTION_CHANNEL_ID} (pré-configuré)")
+        logger.info(f"✅ TARGET_CHANNEL_ID: {self.TARGET_CHANNEL_ID}")
+        logger.info(f"✅ PREDICTION_CHANNEL_ID: {self.PREDICTION_CHANNEL_ID}")
         
         if not self.ADMIN_CHAT_ID:
             logger.warning("⚠️ ADMIN_CHAT_ID non configuré")
         else:
             logger.info(f"✅ ADMIN_CHAT_ID: {self.ADMIN_CHAT_ID}")
         
-        logger.info(f"✅ PORT: {self.PORT}")
+        logger.info(f"✅ PORT (Flask Health Check): {self.PORT}")
         logger.info("=" * 50)
+
