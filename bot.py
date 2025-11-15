@@ -10,24 +10,30 @@ from typing import Dict, Optional, List
 
 logger = logging.getLogger(__name__)
 
+# Importation hypothétique des gestionnaires de commandes.
+# NOTE: Dans un vrai projet, les gestionnaires de commandes ne sont pas ici.
+# Nous allons juste garder les méthodes API.
+
 class TelegramBot:
     """Gère les requêtes API Telegram."""
 
     def __init__(self, token: str):
         self.api_url = f"https://api.telegram.org/bot{token}/"
         self.token = token
-        # Mettez vos commandes ici pour un traitement rapide
-        self.handlers = {
-            '/start': self._handle_start,
-            '/ping': self._handle_ping,
-        }
 
     def _request(self, method: str, data: Optional[Dict] = None) -> Optional[Dict]:
-        """Méthode générique pour envoyer une requête à l'API Telegram."""
+        """
+        Méthode générique pour envoyer une requête à l'API Telegram.
+        Timeout augmenté à 35s pour le Long Polling (Long Polling dure 30s).
+        """
         url = self.api_url + method
         try:
             if not self.token: return None
-            response = requests.post(url, json=data, timeout=5)
+            
+            # 💡 CORRECTION : Augmentation du timeout HTTP
+            HTTP_TIMEOUT = 35 
+            
+            response = requests.post(url, json=data, timeout=HTTP_TIMEOUT)
             response.raise_for_status()
             result = response.json()
             
@@ -38,12 +44,6 @@ class TelegramBot:
         except requests.exceptions.RequestException as e:
             logger.error(f"❌ Erreur API Telegram ({method}): {e}")
             return None
-
-    def set_webhook(self, webhook_url: str) -> bool:
-        """Configure l'URL du Webhook. Utilisé ici pour la suppression."""
-        data = {'url': webhook_url, 'drop_pending_updates': True}
-        result = self._request('setWebhook', data)
-        return result and result.get('ok')
 
     def delete_webhook(self) -> bool:
         """Supprime l'URL du Webhook (CRUCIAL pour le Polling)."""
@@ -66,14 +66,18 @@ class TelegramBot:
         result = self._request('sendMessage', data)
         return result['result'].get('message_id') if result and result.get('ok') and 'result' in result else None
 
-    # ... autres méthodes (edit_message_text, answer_callback_query, send_document) ...
-    # Les autres méthodes de votre bot.py sont conservées mais omises ici pour la concision
-
+    def answer_callback_query(self, callback_query_id: str, text: str = ""):
+        data = {
+            'callback_query_id': callback_query_id,
+            'text': text
+        }
+        self._request('answerCallbackQuery', data)
+        
     def get_updates(self, offset: Optional[int] = None, timeout: int = 30) -> List[Dict]:
         """Récupère les mises à jour via polling (long polling)."""
         data = {
             'timeout': timeout,
-            'allowed_updates': ['message', 'callback_query'] # Simplifié
+            'allowed_updates': ['message', 'callback_query'] 
         }
         if offset:
             data['offset'] = offset
@@ -81,51 +85,7 @@ class TelegramBot:
         result = self._request('getUpdates', data)
         return result.get('result', []) if result and result.get('ok') else []
 
-    # --- Gestion des updates Polling ---
+    # Les autres méthodes de votre bot.py sont conservées mais omises ici.
     
-    def _log_update_info(self, update: Dict):
-        """Logue l'info essentielle de l'update pour le debug."""
-        if 'message' in update:
-            msg = update['message']
-            chat_id = msg.get('chat', {}).get('id', 'unknown')
-            user_id = msg.get('from', {}).get('id', 'unknown')
-            text = msg.get('text', '')[:50]
-            logger.info(f"📨 MESSAGE | Chat:{chat_id} | User:{user_id} | Text: {text}...")
-        elif 'callback_query' in update:
-            query = update['callback_query']
-            user_id = query.get('from', {}).get('id', 'unknown')
-            data = query.get('data', '')
-            logger.info(f"📲 CALLBACK | User:{user_id} | Data: {data}")
-
-    def _handle_start(self, chat_id: str, message: Dict):
-        self.send_message(chat_id, "🚀 Je suis le bot en mode Polling déployé sur Render.com. Utilisez /ping pour vérifier mon activité.")
-
-    def _handle_ping(self, chat_id: str, message: Dict):
-        self.send_message(chat_id, "Pong! Je suis bien vivant et je pollise.")
-        
-    def handle_update(self, update: Dict):
-        """Distribue l'update au bon gestionnaire."""
-        self._log_update_info(update)
-        
-        if 'message' in update:
-            message = update['message']
-            chat_id = message.get('chat', {}).get('id')
-            text = message.get('text', '')
-            
-            if text.startswith('/'):
-                command = text.split()[0]
-                handler = self.handlers.get(command)
-                if handler:
-                    handler(chat_id, message)
-                else:
-                    logger.warning(f"Commande non gérée: {command}")
-        
-        elif 'callback_query' in update:
-            # Logique pour les boutons
-            query = update['callback_query']
-            chat_id = query.get('message', {}).get('chat', {}).get('id')
-            data = query.get('data')
-            
-            # Exemple : self._handle_callback(chat_id, data)
-            self.answer_callback_query(query['id'], text=f"Donnée reçue: {data}")
-
+    # 🚨 NOTE IMPORTANTE : La méthode 'handle_update' est déplacée vers handlers.py (process_update)
+    
