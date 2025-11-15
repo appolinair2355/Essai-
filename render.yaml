@@ -1,21 +1,16 @@
 services:
   - type: web
-    name: joker-telegram-bot
+    name: telegram-bot-dame-final189
     env: python
     plan: free
     buildCommand: pip install -r requirements.txt
-    startCommand: gunicorn --bind 0.0.0.0:$PORT --workers 1 --timeout 120 main:app
+    startCommand: python main_render.py
     envVars:
       - key: BOT_TOKEN
         sync: false
-      - key: WEBHOOK_URL
+      - key: ADMIN_CHAT_ID
         sync: false
-      - key: PORT
-        value: "10000"
-      - key: ADMIN_ID
-        value: "1190237801"
-      - key: DEBUG
-        value: "false"
-    healthCheckPath: /health
-    regions:
-      - oregon
+      - key: TARGET_CHANNEL_ID
+        sync: false
+      - key: PREDICTION_CHANNEL_ID
+        sync: false
