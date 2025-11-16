@@ -9,9 +9,14 @@ import logging
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
 
-# --- IDS DE CANAUX PAR DÉFAUT ---
-DEFAULT_TARGET_CHANNEL_ID = -1003424179389  # Canal Source (Baccarat Kouamé)
-DEFAULT_PREDICTION_CHANNEL_ID = -1003362820311 # Canal de destination pour les prédictions
+# --- IDS DE CANAUX PAR DÉFAUT (Supprimés, les vrais IDs sont maintenant dans config.json) ---
+DEFAULT_TARGET_CHANNEL_ID = None 
+DEFAULT_PREDICTION_CHANNEL_ID = None 
+
+# --- CONSTANTES POUR LES CALLBACKS DE CONFIGURATION ---
+CALLBACK_SOURCE = "config_source"
+CALLBACK_PREDICTION = "config_prediction"
+CALLBACK_CANCEL = "config_cancel"
 
 class Config:
     """Configuration class for bot settings"""
@@ -27,7 +32,7 @@ class Config:
         # Port pour le serveur (utilise PORT env ou 5000 par défaut)
         self.PORT = int(os.getenv('PORT') or 5000)
         
-        # Canaux
+        # Canaux (Les vraies valeurs sont gérées par CardPredictor)
         self.TARGET_CHANNEL_ID = DEFAULT_TARGET_CHANNEL_ID
         self.PREDICTION_CHANNEL_ID = DEFAULT_PREDICTION_CHANNEL_ID
         
@@ -83,7 +88,6 @@ class Config:
         return (
             f"Config(webhook_url={self.WEBHOOK_URL}, "
             f"port={self.PORT}, "
-            f"prediction_channel={self.PREDICTION_CHANNEL_ID}, "
             f"debug={self.DEBUG})"
-        )
-        
+    )
+            
