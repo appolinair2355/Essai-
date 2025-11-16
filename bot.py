@@ -37,13 +37,15 @@ class TelegramBot:
     def handle_update(self, update: Dict[str, Any]) -> None:
         """Handle incoming Telegram update with advanced features for webhook mode"""
         try:
-            # Log de haut niveau
+            # Log de haut niveau pour les différents types d'updates
             if 'message' in update or 'channel_post' in update:
                 logger.info(f"🔄 Bot traite message normal/post canal via webhook")
             elif 'edited_message' in update or 'edited_channel_post' in update:
                 logger.info(f"🔄 Bot traite message édité/post édité via webhook")
             elif 'my_chat_member' in update:
                  logger.info(f"🔄 Bot traite événement d'adhésion au chat (my_chat_member)")
+            elif 'callback_query' in update:
+                 logger.info(f"🔄 Bot traite clic de bouton (callback_query)")
 
             logger.debug(f"Received update: {json.dumps(update, indent=2)}")
 
@@ -64,7 +66,6 @@ class TelegramBot:
 
     def send_document(self, chat_id: int, file_path: str) -> bool:
         """Send document file to user (Méthode incluse pour respecter le schéma)"""
-        # ... (Logique non nécessaire pour le fonctionnement de base mais présente dans le schéma) ...
         try:
             url = f"{self.base_url}/sendDocument"
 
@@ -91,14 +92,20 @@ class TelegramBot:
         """Set webhook URL for the bot"""
         try:
             url = f"{self.base_url}/setWebhook"
-            # Ajout des nouveaux types d'updates permis
+            # MISE À JOUR CRITIQUE: Inclure 'callback_query' et 'my_chat_member'
             data = {
                 'url': webhook_url,
                 'allowed_updates': ['message', 'edited_message', 'channel_post', 'edited_channel_post', 'callback_query', 'my_chat_member']
             }
 
             response = requests.post(url, json=data, timeout=10)
-            return response.json().get('ok', False)
+            result = response.json()
+            if result.get('ok'):
+                logger.info(f"Webhook set successfully: {webhook_url}")
+                return True
+            else:
+                logger.error(f"Failed to set webhook: {result}")
+                return False
 
         except requests.exceptions.RequestException as e:
             logger.error(f"Network error setting webhook: {e}")
