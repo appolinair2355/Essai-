@@ -311,9 +311,22 @@ class CardPredictor:
             return True
         return time.time() > (self.last_prediction_time + self.prediction_cooldown)
 
+    # --- MÉTHODES DE FILTRAGE MISES À JOUR ---
+    
     def has_pending_indicators(self, message: str) -> bool:
-        """Vérifie la présence d'indicateurs de confirmation (R, X)."""
-        return '#R' in message or '#X' in message
+        """
+        Vérifie la présence des indicateurs d'état temporaire (🕐 ou ⏰).
+        Si l'un d'eux est présent, le message est en attente.
+        """
+        return '🕐' in message or '⏰' in message
+        
+    def has_completion_indicators(self, message: str) -> bool:
+        """
+        Vérifie la présence des indicateurs de succès explicites (✅ ou 🔰).
+        """
+        return '✅' in message or '🔰' in message
+        
+    # ------------------------------------------
 
     def should_predict(self, message: str) -> Tuple[bool, Optional[int], Optional[str]]:
         """Détermine si une prédiction doit être faite."""
@@ -328,8 +341,14 @@ class CardPredictor:
         self.collect_inter_data(game_number, message) 
         # ----------------------------------------------------
         
-        # Ne pas prédire si c'est une confirmation ou un échec
+        # 1. BLOCAGE IMMEDIAT si le message est en attente (🕐/⏰)
         if self.has_pending_indicators(message):
+            return False, None, None 
+        
+        # 2. VÉRIFICATION STRICTE DE FINALISATION 
+        # Si le message est stable (pas en attente), il DOIT contenir ✅ ou 🔰 pour être traité.
+        if not self.has_completion_indicators(message):
+            logger.info("❌ PRÉDICTION BLOQUÉE: Message stable, mais sans indicateur de succès explicite (✅/🔰).")
             return False, None, None
             
         predicted_value = None
@@ -415,7 +434,7 @@ class CardPredictor:
             if prediction.get('status') != 'pending' or prediction.get('predicted_costume') != 'Q':
                 continue
 
-            verification_offset = game_number - predicted_game
+                        verification_offset = game_number - predicted_game
             
             # Vérification pour N, N+1, N+2 par rapport à la prédiction
             if 0 <= verification_offset <= 2:
