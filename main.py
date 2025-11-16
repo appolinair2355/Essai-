@@ -1,16 +1,11 @@
 """
-Main entry point for the Telegram bot deployment on render.com (POLLING MODE)
-Implémente le 'Double Démarrage' (Polling en thread + Flask Health Check)
+Main entry point for the Telegram bot deployment on render.com
 """
 import os
 import logging
-import threading
-import time
-from flask import Flask, jsonify
+from flask import Flask, request
 from bot import TelegramBot
 from config import Config
-# 💡 IMPORT CRUCIAL : Importation de la fonction de traitement
-from handlers import process_update 
 
 # Configure logging
 logging.basicConfig(
@@ -22,76 +17,83 @@ logger = logging.getLogger(__name__)
 # Initialize Flask app
 app = Flask(__name__)
 
-# Initialize bot and config
+# Initialize bot
 config = Config()
 bot_token = config.BOT_TOKEN
 if not bot_token:
     raise ValueError("BOT_TOKEN is required")
 bot = TelegramBot(bot_token)
 
-# Thread global pour le statut du bot
-bot_thread = None
-
-# --- FONCTION DE DÉMARRAGE DU POLLING (CORRIGÉE) ---
-def start_polling_process():
-    """Lance le bot en mode Polling, gère les mises à jour, l'offset et appelle le handler."""
-    logger.info("🤖 Démarrage du bot en mode Polling...")
-    
-    # ÉTAPE 1 : S'assurer qu'aucun webhook n'est configuré
+@app.route('/webhook', methods=['POST'])
+def webhook():
+    """Handle incoming webhook from Telegram"""
     try:
-        bot.delete_webhook() 
-        logger.info("✅ Webhook supprimé avec succès.")
+        update = request.get_json()
+
+        # Log type de message reçu avec détails
+        if 'message' in update:
+            msg = update['message']
+            chat_id = msg.get('chat', {}).get('id', 'unknown')
+            user_id = msg.get('from', {}).get('id', 'unknown')
+            text = msg.get('text', '')[:50]
+            logger.info(f"📨 WEBHOOK - Message normal | Chat:{chat_id} | User:{user_id} | Text:{text}...")
+        elif 'edited_message' in update:
+            msg = update['edited_message']
+            chat_id = msg.get('chat', {}).get('id', 'unknown')
+            user_id = msg.get('from', {}).get('id', 'unknown')
+            text = msg.get('text', '')[:50]
+            logger.info(f"✏️ WEBHOOK - Message édité | Chat:{chat_id} | User:{user_id} | Text:{text}...")
+
+        logger.info(f"Webhook received update: {update}")
+
+        if update:
+            # Traitement direct pour meilleure réactivité
+            bot.handle_update(update)
+            logger.info("Update processed successfully")
+
+        return 'OK', 200
     except Exception as e:
-        logger.error(f"Erreur lors de la suppression du Webhook : {e}")
+        logger.error(f"Error handling webhook: {e}")
+        return 'Error', 500
 
-    offset = None 
-    
-    while True:
-        try:
-            # Récupère les updates via Long Polling
-            updates = bot.get_updates(offset=offset, timeout=30)
-            
-            if updates:
-                logger.info(f"📥 {len(updates)} nouvelles mises à jour reçues.")
-                
-                for update in updates:
-                    # 💡 CORRECTION : Appeler la fonction de traitement (handlers.py)
-                    process_update(bot, update)
-                    
-                    # Mise à jour de l'offset pour la prochaine requête
-                    update_id = update.get('update_id')
-                    if update_id is not None:
-                        offset = update_id + 1
-                        
-        except Exception as e:
-            logger.error(f"❌ Erreur critique dans la boucle de Polling : {e}. Nouvelle tentative dans 5s.")
-            time.sleep(5)
-
-# --- ENDPOINTS POUR RENDER.COM (HEALTH CHECK) ---
 @app.route('/health', methods=['GET'])
 def health_check():
-    """Health check endpoint pour Render.com."""
-    if bot_thread and bot_thread.is_alive():
-        return jsonify({'status': 'healthy', 'service': 'telegram-bot-polling'}), 200
-    
-    logger.error("❌ Thread de Polling inactif!")
-    return jsonify({'status': 'unhealthy', 'service': 'telegram-bot-polling', 'error': 'Polling thread died'}), 503
+    """Health check endpoint for render.com"""
+    return {'status': 'healthy', 'service': 'telegram-bot'}, 200
 
 @app.route('/', methods=['GET'])
 def home():
-    """Endpoint racine."""
-    return jsonify({'message': 'Telegram Bot is running in POLLING mode', 'status': 'active'}), 200
+    """Root endpoint"""
+    return {'message': 'Telegram Bot is running', 'status': 'active'}, 200
 
-# --- DÉMARRAGE PRINCIPAL ---
+def setup_webhook():
+    """Set up webhook on startup"""
+    try:
+        # Utiliser l'URL configurée dans Config
+        webhook_url = config.WEBHOOK_URL
+        if webhook_url and webhook_url != "https://.repl.co":
+            full_webhook_url = f"{webhook_url}/webhook"
+            logger.info(f"🔗 Configuration webhook: {full_webhook_url}")
+
+            # Configure webhook for Render.com with your specific URL
+            success = bot.set_webhook(full_webhook_url)
+            if success:
+                logger.info(f"✅ Webhook configuré avec succès: {full_webhook_url}")
+                logger.info(f"🎯 Bot prêt pour prédictions automatiques et vérifications via webhook")
+            else:
+                logger.error("❌ Échec configuration webhook")
+        else:
+            logger.warning("⚠️ WEBHOOK_URL non configurée, mode polling recommandé pour le développement")
+            logger.info("💡 Pour activer le webhook, configurez la variable WEBHOOK_URL")
+    except Exception as e:
+        logger.error(f"❌ Erreur configuration webhook: {e}")
+
 if __name__ == '__main__':
-    
-    # 1. Crée et lance le thread de Polling (le bot)
-    logger.info("Démarrage du Thread de Polling...")
-    bot_thread = threading.Thread(target=start_polling_process)
-    bot_thread.daemon = True 
-    bot_thread.start()
+    # Set up webhook on startup
+    setup_webhook()
 
-    # 2. Démarre l'application Flask (Health Check) sur le PORT requis par Render
-    logger.info(f"Serveur Flask (Health Check) démarré sur le port {config.PORT}.")
-    app.run(host='0.0.0.0', port=config.PORT, debug=False)
-        
+    # Get port from environment (render.com provides this)
+    port = int(os.getenv('PORT') or 5000)
+
+    # Run the Flask app
+    app.run(host='0.0.0.0', port=port, debug=False)

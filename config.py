@@ -1,6 +1,5 @@
 """
-Fichier de configuration : Charge les variables d'environnement
-Détection automatique de l'environnement (Replit vs Render.com)
+Configuration settings for the Telegram bot
 """
 import os
 import logging
@@ -8,48 +7,71 @@ import logging
 logger = logging.getLogger(__name__)
 
 class Config:
+    """Configuration class for bot settings"""
+    
     def __init__(self):
-        # IDs pré-configurés (peuvent être surchargés par les variables d'environnement)
-        DEFAULT_TARGET_CHANNEL_ID = "-1003424179389"
-        DEFAULT_PREDICTION_CHANNEL_ID = "-1003362820311"
-        
-        # Détection automatique de l'environnement
-        self.IS_REPLIT = os.environ.get('REPL_SLUG') is not None
-        self.IS_RENDER = os.environ.get('RENDER') is not None
-        
-        self.BOT_TOKEN = os.environ.get('BOT_TOKEN')
-        self.TARGET_CHANNEL_ID = os.environ.get('TARGET_CHANNEL_ID') or DEFAULT_TARGET_CHANNEL_ID
-        self.PREDICTION_CHANNEL_ID = os.environ.get('PREDICTION_CHANNEL_ID') or DEFAULT_PREDICTION_CHANNEL_ID
-        self.ADMIN_CHAT_ID = os.environ.get('ADMIN_CHAT_ID')
-        
-        # Port pour le serveur Flask de Health Check (obligatoire pour Render.com)
-        self.PORT = int(os.environ.get('PORT') or 5000)
-        
-        # Validation et logs détaillés
-        logger.info("=" * 50)
-        logger.info("🔧 Configuration du Bot")
-        logger.info("=" * 50)
-        
-        if self.IS_REPLIT:
-            logger.info("🏠 Environnement détecté: REPLIT")
-        elif self.IS_RENDER:
-            logger.info("🌐 Environnement détecté: RENDER.COM")
-        else:
-            logger.info("💻 Environnement détecté: LOCAL/AUTRE")
-        
+        # BOT_TOKEN - OBLIGATOIRE depuis variable d'environnement
+        self.BOT_TOKEN = os.getenv('BOT_TOKEN')
         if not self.BOT_TOKEN:
-            logger.critical("❌ BOT_TOKEN n'est pas configuré - Le bot ne peut pas démarrer")
+            logger.error("❌ BOT_TOKEN non trouvé dans les variables d'environnement")
+            logger.info("💡 Configurez BOT_TOKEN dans les Secrets Replit")
+            raise ValueError("BOT_TOKEN environment variable is required")
+        
+        logger.info(f"✅ BOT_TOKEN configuré: {self.BOT_TOKEN[:10]}...")
+        
+        # Validation basique du format du token
+        if len(self.BOT_TOKEN.split(':')) != 2:
+            logger.error("❌ Format de token invalide")
+            raise ValueError("Invalid bot token format")
+        
+        # Auto-génération URL pour Replit
+        if os.getenv('REPLIT_DOMAINS'):
+            # URL automatique basée sur le domaine Replit
+            auto_webhook = f"https://{os.getenv('REPLIT_DOMAINS')}"
         else:
-            logger.info(f"✅ BOT_TOKEN configuré (longueur: {len(self.BOT_TOKEN)})")
+            # Fallback URL Replit
+            auto_webhook = f'https://{os.getenv("REPL_SLUG", "")}.{os.getenv("REPL_OWNER", "")}.repl.co'
         
-        logger.info(f"✅ TARGET_CHANNEL_ID: {self.TARGET_CHANNEL_ID}")
-        logger.info(f"✅ PREDICTION_CHANNEL_ID: {self.PREDICTION_CHANNEL_ID}")
+        # Priority: WEBHOOK_URL explicite > Auto-génération
+        self.WEBHOOK_URL = os.getenv('WEBHOOK_URL', auto_webhook)
+        logger.info(f"Webhook URL configuré: {self.WEBHOOK_URL}")
+        # Port pour le serveur - utilise PORT env ou 5000 par défaut (Replit)
+        self.PORT = int(os.getenv('PORT') or 5000)
+        # Canal de destination pour les prédictions
+        self.PREDICTION_CHANNEL_ID = -1002887687164
+        self.DEBUG = os.getenv('DEBUG', 'False').lower() == 'true'
         
-        if not self.ADMIN_CHAT_ID:
-            logger.warning("⚠️ ADMIN_CHAT_ID non configuré")
-        else:
-            logger.info(f"✅ ADMIN_CHAT_ID: {self.ADMIN_CHAT_ID}")
+        # Validate configuration
+        self._validate_config()
+    
+    def _get_bot_token(self) -> str:
+        """Get bot token from environment variables only"""
+        token = os.getenv('BOT_TOKEN', os.getenv('TELEGRAM_BOT_TOKEN', ''))
         
-        logger.info(f"✅ PORT (Flask Health Check): {self.PORT}")
-        logger.info("=" * 50)
+        if not token:
+            raise ValueError("BOT_TOKEN environment variable is required")
         
+        return token
+    
+    def _validate_config(self) -> None:
+        """Validate configuration settings"""
+        if not self.BOT_TOKEN:
+            raise ValueError("Bot token is required")
+        
+        if len(self.BOT_TOKEN.split(':')) != 2:
+            raise ValueError("Invalid bot token format")
+        
+        if self.WEBHOOK_URL and not self.WEBHOOK_URL.startswith('https://'):
+            logger.warning("Webhook URL should use HTTPS for production")
+        
+        logger.info("Configuration validated successfully")
+    
+    def get_webhook_url(self) -> str:
+        """Get full webhook URL"""
+        if self.WEBHOOK_URL:
+            return f"{self.WEBHOOK_URL}/webhook"
+        return ""
+    
+    def __str__(self) -> str:
+        """String representation of config (without sensitive data)"""
+        return f"Config(webhook_url={self.WEBHOOK_URL}, port={self.PORT}, debug={self.DEBUG})"
