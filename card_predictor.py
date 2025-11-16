@@ -22,10 +22,10 @@ CARD_SYMBOLS = ["♠️", "♥️", "♦️", "♣️", "❤️"]  # Include bot
 # PREDICTION_MESSAGE is now handled directly in make_prediction method
 
 # Target channel ID for Baccarat Kouamé
-TARGET_CHANNEL_ID = -1002682552255
+TARGET_CHANNEL_ID = -1003424179389
 
 # Target channel ID for predictions and updates
-PREDICTION_CHANNEL_ID = -1002646551216
+PREDICTION_CHANNEL_ID = -1003362820311
 
 class CardPredictor:
     """Handles card prediction logic for webhook deployment"""
