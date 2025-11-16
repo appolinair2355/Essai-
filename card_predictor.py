@@ -311,8 +311,7 @@ class CardPredictor:
             return True
         return time.time() > (self.last_prediction_time + self.prediction_cooldown)
 
-    # --- MÉTHODES DE FILTRAGE MISES À JOUR ---
-    
+    # --- NOUVELLES MÉTHODES DE FILTRAGE (CORRIGÉES POUR L'INDENTATION) ---
     def has_pending_indicators(self, message: str) -> bool:
         """
         Vérifie la présence des indicateurs d'état temporaire (🕐 ou ⏰).
@@ -325,8 +324,7 @@ class CardPredictor:
         Vérifie la présence des indicateurs de succès explicites (✅ ou 🔰).
         """
         return '✅' in message or '🔰' in message
-        
-    # ------------------------------------------
+    # --------------------------------------------------------------------
 
     def should_predict(self, message: str) -> Tuple[bool, Optional[int], Optional[str]]:
         """Détermine si une prédiction doit être faite."""
@@ -345,8 +343,7 @@ class CardPredictor:
         if self.has_pending_indicators(message):
             return False, None, None 
         
-        # 2. VÉRIFICATION STRICTE DE FINALISATION 
-        # Si le message est stable (pas en attente), il DOIT contenir ✅ ou 🔰 pour être traité.
+        # 2. VÉRIFICATION STRICTE DE FINALISATION (Doit avoir ✅ ou 🔰)
         if not self.has_completion_indicators(message):
             logger.info("❌ PRÉDICTION BLOQUÉE: Message stable, mais sans indicateur de succès explicite (✅/🔰).")
             return False, None, None
@@ -421,7 +418,7 @@ class CardPredictor:
         self._save_all_data()
         return prediction_text
         
-        def _verify_prediction_common(self, text: str, is_edited: bool = False) -> Optional[Dict]:
+    def _verify_prediction_common(self, text: str, is_edited: bool = False) -> Optional[Dict]:
         """Vérifie si le message contient le résultat pour une prédiction en attente (Q)."""
         game_number = self.extract_game_number(text)
         if not game_number or not self.predictions:
