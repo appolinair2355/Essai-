@@ -8,13 +8,9 @@ import logging
 from flask import Flask, request, jsonify
 import requests
 
-# Importe notre classe de gestionnaire et l'aliasse en TelegramBot pour respecter le schéma
+# Importe la configuration et le gestionnaire
+from config import Config
 from handlers import TelegramHandlers as TelegramBot 
-
-# --- CONFIGURATION (Lecture directe de l'environnement) ---
-BOT_TOKEN = os.environ.get("BOT_TOKEN", "VOTRE_TOKEN_TELEGRAM_ICI") 
-WEBHOOK_URL = os.environ.get("WEBHOOK_URL", "VOTRE_URL_WEBHOOK_ICI") 
-TELEGRAM_API_URL = f"https://api.telegram.org/bot{BOT_TOKEN}"
 
 # Configure logging
 logging.basicConfig(
@@ -23,15 +19,21 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
+# Initialize bot and config
+try:
+    config = Config()
+except ValueError as e:
+    logger.error(f"❌ Erreur d'initialisation de la configuration: {e}")
+    # Ne pas continuer si la config est essentielle
+    exit(1) 
+
+# 'bot' est notre instance de TelegramHandlers (maintenant initialisée avec le token de Config)
+bot = TelegramBot(config.BOT_TOKEN) 
+
 # Initialize Flask app
 app = Flask(__name__)
+TELEGRAM_API_URL = f"https://api.telegram.org/bot{config.BOT_TOKEN}"
 
-# Initialize bot
-if not BOT_TOKEN:
-    raise ValueError("BOT_TOKEN is required in environment variables.")
-
-# 'bot' est notre instance de TelegramHandlers
-bot = TelegramBot(BOT_TOKEN)
 
 # --- LOGIQUE WEBHOOK ---
 
@@ -101,8 +103,9 @@ def set_webhook_request(url: str) -> bool:
 def setup_webhook():
     """Set up webhook on startup"""
     try:
-        if WEBHOOK_URL and not WEBHOOK_URL.startswith("VOTRE_"):
-            full_webhook_url = f"{WEBHOOK_URL}/webhook"
+        full_webhook_url = config.get_webhook_url()
+        
+        if full_webhook_url and not config.WEBHOOK_URL.startswith('https://.repl.co'): # Évite de configurer si l'URL est le fallback de replit
             logger.info(f"🔗 Configuration webhook: {full_webhook_url}")
 
             # Configure webhook 
@@ -114,8 +117,7 @@ def setup_webhook():
             else:
                 logger.error("❌ Échec configuration webhook")
         else:
-            logger.warning("⚠️ WEBHOOK_URL non configurée ou valeur par défaut. Le webhook ne sera PAS configuré.")
-            logger.info("💡 Pour activer le webhook, configurez la variable WEBHOOK_URL dans votre environnement.")
+            logger.warning("⚠️ WEBHOOK_URL non configurée ou non valide. Le webhook ne sera PAS configuré.")
     except Exception as e:
         logger.error(f"❌ Erreur configuration webhook: {e}")
 
@@ -124,8 +126,8 @@ if __name__ == '__main__':
     setup_webhook()
 
     # Get port from environment 
-    port = int(os.getenv('PORT') or 10000)
+    port = config.PORT
 
     # Run the Flask app
-    app.run(host='0.0.0.0', port=port, debug=False)
-            
+    app.run(host='0.0.0.0', port=port, debug=config.DEBUG)
+           
