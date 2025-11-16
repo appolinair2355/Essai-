@@ -1,3 +1,5 @@
+# card_predictor.py
+
 import re
 import logging
 import time
@@ -8,11 +10,6 @@ import os
 
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
-
-# --- CONFIGURATION (À MODIFIER PAR VOS IDs) ---
-# NOTE: Remplacer ces valeurs par les IDs réels de vos canaux (commencent par -100...)
-TARGET_CHANNEL_ID = -1003424179389  # Canal Source (Baccarat Kouamé)
-PREDICTION_CHANNEL_ID = -1003362820311 # Canal de destination pour les prédictions
 
 # --- CONSTANTES ---
 HIGH_VALUE_CARDS = ["A", "K", "Q", "J"] 
@@ -27,18 +24,17 @@ class CardPredictor:
         self.inter_data = self._load_data('inter_data.json')
         self.last_prediction_time = self._load_data('last_prediction_time.json', is_scalar=True)
         
+        # --- CONFIGURATION DYNAMIQUE DES CANAUX ---
+        self.config_data = self._load_data('channels_config.json')
+        self.target_channel_id = self.config_data.get('target_channel_id', None)
+        self.prediction_channel_id = self.config_data.get('prediction_channel_id', None)
+        
         # Logique INTER
         self.is_inter_mode_active = False
         self.smart_rules = []
-        # Stockage temporaire des déclencheurs N-2
         self.last_two_cards_n_minus_2 = {} 
-        
-        # Configuration
         self.prediction_cooldown = 30 
-        self.target_channel_id = TARGET_CHANNEL_ID
-        self.prediction_channel_id = PREDICTION_CHANNEL_ID
         
-        # Initialisation des règles INTER si des données existent
         if self.inter_data:
             self.analyze_and_set_smart_rules(initial_load=True)
 
@@ -51,11 +47,13 @@ class CardPredictor:
                 if is_set:
                     return set(data)
                 if is_scalar:
-                    # Assure que le cooldown est un int/float
                     return int(data) if isinstance(data, (int, float)) else data
                 return data
         except (FileNotFoundError, json.JSONDecodeError):
-            return set() if is_set else (0.0 if is_scalar else {})
+            return set() if is_set else (0.0 if is_scalar else ({} if not is_set else set()))
+        except Exception as e:
+             logger.error(f"Erreur de chargement de {filename}: {e}")
+             return set() if is_set else (0.0 if is_scalar else ({} if not is_set else set()))
 
     def _save_data(self, data, filename: str):
         """Sauvegarde les données dans un fichier JSON."""
@@ -73,7 +71,30 @@ class CardPredictor:
         self._save_data(self.inter_data, 'inter_data.json')
         self._save_data(self.last_prediction_time, 'last_prediction_time.json')
 
-    # --- Méthodes Utilitaires ---
+    def _save_channels_config(self):
+        """Sauvegarde les IDs de canaux dans channels_config.json."""
+        self.config_data['target_channel_id'] = self.target_channel_id
+        self.config_data['prediction_channel_id'] = self.prediction_channel_id
+        self._save_data(self.config_data, 'channels_config.json')
+
+    # --- MÉTHODE PUBLIQUE POUR HANDLERS.PY (Configuration) ---
+    def set_channel_id(self, channel_id: int, channel_type: str):
+        """Met à jour l'ID d'un canal et sauvegarde."""
+        if channel_type == 'source':
+            self.target_channel_id = channel_id
+            logger.info(f"💾 Canal SOURCE mis à jour: {channel_id}")
+        elif channel_type == 'prediction':
+            self.prediction_channel_id = channel_id
+            logger.info(f"💾 Canal PRÉDICTION mis à jour: {channel_id}")
+        else:
+            return False
+            
+        self._save_channels_config()
+        return True
+    
+    # --- MÉTHODES UTILITAIRES / LOGIQUE DE PRÉDICTION (Logique inchangée) ---
+    # (can_make_prediction, extract_game_number, extract_first_parentheses_content, etc. non reproduites ici pour la concision)
+
     def can_make_prediction(self) -> bool:
         """Vérifie le cooldown."""
         return (time.time() - self.last_prediction_time) > self.prediction_cooldown
@@ -132,22 +153,19 @@ class CardPredictor:
     # --- Logique INTER (Mode Intelligent) ---
     
     def collect_inter_data(self, game_number: int, message: str):
-        """Collecte les données (Déclencheur à N-2, Dame Q à N). N'enregistre que les succès (Q trouvée)."""
+        """Collecte les données (Déclencheur à N-2, Dame Q à N)."""
         first_group_content = self.extract_first_parentheses_content(message)
         if not first_group_content:
             return
 
-        # 1. Stocke le déclencheur N (pour être potentiellement le déclencheur N-2 du prochain succès)
         first_two_cards = self.get_first_two_cards(first_group_content)
         if len(first_two_cards) == 2:
             self.last_two_cards_n_minus_2[game_number] = first_two_cards
 
-        # 2. Vérifie si le jeu actuel N est un SUCCÈS (contient Q)
         if self.check_value_Q_in_first_parentheses(message):
             n_minus_2_game = game_number - 2
             trigger_cards = self.last_two_cards_n_minus_2.get(n_minus_2_game)
             
-            # Si un déclencheur N-2 est trouvé, on l'enregistre comme un succès
             if trigger_cards:
                 new_entry = {
                     'numero': game_number,
@@ -157,7 +175,6 @@ class CardPredictor:
                 self.inter_data.append(new_entry)
                 self._save_all_data()
                 
-            # Nettoyer le déclencheur après l'avoir utilisé
             if n_minus_2_game in self.last_two_cards_n_minus_2:
                 del self.last_two_cards_n_minus_2[n_minus_2_game]
 
@@ -177,7 +194,6 @@ class CardPredictor:
         top_3 = [list(declencheur) for declencheur, count in sorted_declencheurs[:3]]
         self.smart_rules = top_3
         
-        # N'active le mode que s'il y a des règles ou si c'est le chargement initial.
         if top_3 or initial_load:
             self.is_inter_mode_active = True
             
@@ -207,6 +223,10 @@ class CardPredictor:
 
     def should_predict(self, message: str) -> Tuple[bool, Optional[int], Optional[str]]:
         """Détermine si une prédiction de Dame (Q) doit être faite à N+2."""
+        if not self.target_channel_id:
+             logger.warning("Prédiction ignorée: Canal Source non configuré.")
+             return False, None, None
+             
         game_number = self.extract_game_number(message)
         if not game_number:
             return False, None, None
@@ -214,10 +234,8 @@ class CardPredictor:
         if self.has_pending_indicators(message) or '#R' in message or '#X' in message:
             return False, None, None
             
-        # Collecte les données pour INTER si le jeu actuel N est complété
         self.collect_inter_data(game_number, message)
 
-        # Évite de prédire si une prédiction est déjà en cours pour ce jeu cible
         target_game = game_number + 2
         if target_game in self.predictions and self.predictions[target_game].get('status') == 'pending':
              return False, None, None
@@ -228,21 +246,17 @@ class CardPredictor:
         if first_group_content:
             card_details = self.extract_card_details(first_group_content)
             
-            # 1. RÈGLE N°1: MODE INTELLIGENT (Prioritaire si actif)
             if self.is_inter_mode_active and self.smart_rules:
                 current_trigger = self.get_first_two_cards(first_group_content)
                 if current_trigger and current_trigger in self.smart_rules:
                     predicted_value = "Q"
             
-            # 2. RÈGLES PAR DÉFAUT (Utilisées si le mode INTER est désactivé ou n'a pas déclenché)
             if not predicted_value:
                 card_values = [v for v, c in card_details]
                 
-                # Règle par défaut 1: Deux Valets (J) ou plus
                 if card_values.count('J') >= 2:
                     predicted_value = "Q"
 
-                # Règle par défaut 2: Un seul Valet (J) sans cartes hautes dans le 2ème groupe
                 elif card_values.count('J') == 1:
                     second_parentheses_pattern = r'\(([^)]*)\)'
                     all_matches = re.findall(second_parentheses_pattern, message)
@@ -256,12 +270,10 @@ class CardPredictor:
                     if not has_high_value_in_second:
                         predicted_value = "Q"
 
-        # Vérifie le cooldown avant de finaliser la prédiction
         if predicted_value and not self.can_make_prediction():
             return False, None, None
 
         if predicted_value:
-            # S'assurer que le message n'a pas déjà été traité pour éviter les doublons (même si N+2 est libre)
             message_hash = hash(message)
             if message_hash not in self.processed_messages:
                 self.processed_messages.add(message_hash)
@@ -292,16 +304,12 @@ class CardPredictor:
     def _verify_prediction_common(self, text: str, is_edited: bool = False) -> Optional[Dict]:
         """Vérifie la prédiction de la Dame (Q) à offsets 0, 1, 2."""
         game_number = self.extract_game_number(text)
-        if not game_number:
+        if not game_number or not self.predictions:
             return None
 
         if self.has_pending_indicators(text):
             return None
 
-        if not self.predictions:
-            return None
-
-        # Parcourir les prédictions en attente
         for predicted_game in sorted(self.predictions.keys()):
             prediction = self.predictions[predicted_game]
 
@@ -310,17 +318,15 @@ class CardPredictor:
 
             verification_offset = game_number - predicted_game
             
-            # Vérification sur les jeux N+2, N+3, N+4 (offsets 0, 1, 2)
             if 0 <= verification_offset <= 2:
                 status_symbol_map = {0: "✅0️⃣", 1: "✅1️⃣", 2: "✅2️⃣"}
                 q_found = self.check_value_Q_in_first_parentheses(text)
                 
                 if q_found:
-                    # SUCCÈS - Q trouvée
                     status_symbol = status_symbol_map[verification_offset]
                     updated_message = f"🔵{predicted_game}🔵:Valeur Q statut :{status_symbol}"
                     
-                    prediction['status'] = 'correct'
+                    prediction['status'] = f'correct_offset_{verification_offset}'
                     prediction['verification_count'] = verification_offset
                     prediction['final_message'] = updated_message
                     self._save_all_data()
@@ -331,7 +337,6 @@ class CardPredictor:
                         'new_message': updated_message,
                     }
                 elif verification_offset == 2 and not q_found:
-                    # ÉCHEC - Dernier jeu de vérification atteint (Offset +2) et Q non trouvée
                     updated_message = f"🔵{predicted_game}🔵:Valeur Q statut :❌"
 
                     prediction['status'] = 'failed'
@@ -344,4 +349,3 @@ class CardPredictor:
                         'new_message': updated_message,
                     }
         return None
-    
