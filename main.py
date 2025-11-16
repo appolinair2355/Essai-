@@ -6,10 +6,11 @@ Main entry point for the Telegram bot deployment on render.com
 import os
 import logging
 from flask import Flask, request, jsonify
+import requests
 
 # Importe la configuration et le bot
 from config import Config
-from bot import TelegramBot # Importation de la nouvelle classe Bot
+from bot import TelegramBot 
 
 # Configure logging
 logging.basicConfig(
@@ -25,7 +26,7 @@ except ValueError as e:
     logger.error(f"❌ Erreur d'initialisation de la configuration: {e}")
     exit(1) 
 
-# 'bot' est maintenant une instance de la classe TelegramBot
+# 'bot' est l'instance de la classe TelegramBot
 bot = TelegramBot(config.BOT_TOKEN) 
 
 # Initialize Flask app
@@ -42,7 +43,7 @@ def webhook():
         if not update:
             return jsonify({'status': 'ok'}), 200
 
-        # La logique de logging et de traitement est déléguée à bot.handle_update
+        # Délégation du traitement complet à bot.handle_update
         if update:
             bot.handle_update(update)
         
@@ -71,7 +72,6 @@ def setup_webhook():
         if full_webhook_url and not config.WEBHOOK_URL.startswith('https://.repl.co'):
             logger.info(f"🔗 Tentative de configuration webhook: {full_webhook_url}")
 
-            # Utilisation directe de la méthode du Bot (qui utilise requests en interne)
             success = bot.set_webhook(full_webhook_url)
             
             if success:
