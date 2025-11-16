@@ -1,3 +1,5 @@
+# config.py
+
 """
 Configuration settings for the Telegram bot
 """
@@ -5,73 +7,83 @@ import os
 import logging
 
 logger = logging.getLogger(__name__)
+logger.setLevel(logging.INFO)
+
+# --- IDS DE CANAUX PAR DÉFAUT ---
+DEFAULT_TARGET_CHANNEL_ID = -1003424179389  # Canal Source (Baccarat Kouamé)
+DEFAULT_PREDICTION_CHANNEL_ID = -1003362820311 # Canal de destination pour les prédictions
 
 class Config:
     """Configuration class for bot settings"""
     
     def __init__(self):
-        # BOT_TOKEN - OBLIGATOIRE depuis variable d'environnement
-        self.BOT_TOKEN = os.getenv('BOT_TOKEN')
-        if not self.BOT_TOKEN:
-            logger.error("❌ BOT_TOKEN non trouvé dans les variables d'environnement")
-            logger.info("💡 Configurez BOT_TOKEN dans les Secrets Replit")
-            raise ValueError("BOT_TOKEN environment variable is required")
+        # BOT_TOKEN - OBLIGATOIRE
+        self.BOT_TOKEN = self._get_bot_token()
         
-        logger.info(f"✅ BOT_TOKEN configuré: {self.BOT_TOKEN[:10]}...")
-        
-        # Validation basique du format du token
-        if len(self.BOT_TOKEN.split(':')) != 2:
-            logger.error("❌ Format de token invalide")
-            raise ValueError("Invalid bot token format")
-        
-        # Auto-génération URL pour Replit
-        if os.getenv('REPLIT_DOMAINS'):
-            # URL automatique basée sur le domaine Replit
-            auto_webhook = f"https://{os.getenv('REPLIT_DOMAINS')}"
-        else:
-            # Fallback URL Replit
-            auto_webhook = f'https://{os.getenv("REPL_SLUG", "")}.{os.getenv("REPL_OWNER", "")}.repl.co'
-        
-        # Priority: WEBHOOK_URL explicite > Auto-génération
-        self.WEBHOOK_URL = os.getenv('WEBHOOK_URL', auto_webhook)
-        logger.info(f"Webhook URL configuré: {self.WEBHOOK_URL}")
-        # Port pour le serveur - utilise PORT env ou 5000 par défaut (Replit)
+        # Détermination de l'URL du Webhook
+        self.WEBHOOK_URL = self._determine_webhook_url()
+        logger.info(f"🔗 Webhook URL configuré: {self.WEBHOOK_URL}")
+
+        # Port pour le serveur (utilise PORT env ou 5000 par défaut)
         self.PORT = int(os.getenv('PORT') or 5000)
-        # Canal de destination pour les prédictions
-        self.PREDICTION_CHANNEL_ID = -1002887687164
+        
+        # Canaux
+        self.TARGET_CHANNEL_ID = DEFAULT_TARGET_CHANNEL_ID
+        self.PREDICTION_CHANNEL_ID = DEFAULT_PREDICTION_CHANNEL_ID
+        
+        # Mode Debug
         self.DEBUG = os.getenv('DEBUG', 'False').lower() == 'true'
         
-        # Validate configuration
+        # Validation finale
         self._validate_config()
     
     def _get_bot_token(self) -> str:
-        """Get bot token from environment variables only"""
-        token = os.getenv('BOT_TOKEN', os.getenv('TELEGRAM_BOT_TOKEN', ''))
+        """Récupère et valide le jeton du bot."""
+        token = os.getenv('BOT_TOKEN')
         
         if not token:
+            logger.error("❌ BOT_TOKEN non trouvé dans les variables d'environnement")
             raise ValueError("BOT_TOKEN environment variable is required")
         
+        if len(token.split(':')) != 2:
+            logger.error("❌ Format de token invalide")
+            raise ValueError("Invalid bot token format")
+
+        logger.info(f"✅ BOT_TOKEN configuré: {token[:10]}...")
         return token
     
+    def _determine_webhook_url(self) -> str:
+        """Détermine l'URL du webhook avec priorité à l'ENV."""
+        webhook_url = os.getenv('WEBHOOK_URL')
+        
+        # Logique d'auto-génération (adaptée à Replit comme dans le schéma)
+        if not webhook_url:
+            if os.getenv('REPLIT_DOMAINS'):
+                webhook_url = f"https://{os.getenv('REPLIT_DOMAINS')}"
+            else:
+                webhook_url = f'https://{os.getenv("REPL_SLUG", "")}.{os.getenv("REPL_OWNER", "")}.repl.co'
+        
+        return webhook_url
+    
     def _validate_config(self) -> None:
-        """Validate configuration settings"""
-        if not self.BOT_TOKEN:
-            raise ValueError("Bot token is required")
-        
-        if len(self.BOT_TOKEN.split(':')) != 2:
-            raise ValueError("Invalid bot token format")
-        
+        """Valide les paramètres de configuration."""
         if self.WEBHOOK_URL and not self.WEBHOOK_URL.startswith('https://'):
-            logger.warning("Webhook URL should use HTTPS for production")
+            logger.warning("⚠️ L'URL du webhook devrait utiliser HTTPS pour la production.")
         
-        logger.info("Configuration validated successfully")
+        logger.info("✅ Configuration validée avec succès.")
     
     def get_webhook_url(self) -> str:
-        """Get full webhook URL"""
+        """Renvoie l'URL complète du webhook (y compris /webhook)."""
         if self.WEBHOOK_URL:
             return f"{self.WEBHOOK_URL}/webhook"
         return ""
     
     def __str__(self) -> str:
-        """String representation of config (without sensitive data)"""
-        return f"Config(webhook_url={self.WEBHOOK_URL}, port={self.PORT}, debug={self.DEBUG})"
+        """Représentation textuelle de la configuration (sans données sensibles)."""
+        return (
+            f"Config(webhook_url={self.WEBHOOK_URL}, "
+            f"port={self.PORT}, "
+            f"prediction_channel={self.PREDICTION_CHANNEL_ID}, "
+            f"debug={self.DEBUG})"
+        )
+        
