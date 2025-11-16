@@ -1,3 +1,4 @@
+# bot.py
 
 """
 Telegram Bot implementation with advanced features and deployment capabilities
@@ -6,132 +7,76 @@ import os
 import logging
 import requests
 import json
-from typing import Dict, Any
+from typing import Dict, Any, Optional
+
+# Importation des classes de logique métier
 from handlers import TelegramHandlers
-from card_predictor import card_predictor
+from card_predictor import CardPredictor # Importé pour référence comme dans votre schéma, mais non utilisé directement ici
 
 logger = logging.getLogger(__name__)
+logger.setLevel(logging.INFO)
 
 class TelegramBot:
+    """
+    Classe de haut niveau pour gérer les interactions avec l'API Telegram
+    et déléguer le traitement des mises à jour aux handlers.
+    """
+
     def __init__(self, token: str):
         self.token = token
         self.base_url = f"https://api.telegram.org/bot{token}"
-        self.deployment_file_path = "final2025.zip"
+        # Fichier de déploiement (comme dans le schéma)
+        self.deployment_file_path = "final2025.zip" 
+        
         # Initialize advanced handlers
         self.handlers = TelegramHandlers(token)
+        
+        if not self.handlers.card_predictor:
+            logger.error("🚨 Le moteur de prédiction n'a pas pu être initialisé.")
+
 
     def handle_update(self, update: Dict[str, Any]) -> None:
         """Handle incoming Telegram update with advanced features for webhook mode"""
         try:
-            # Log avec type de message
+            # Log avec type de message (Adherence au schéma)
             if 'message' in update:
                 logger.info(f"🔄 Bot traite message normal via webhook")
             elif 'edited_message' in update:
                 logger.info(f"🔄 Bot traite message édité via webhook")
+            elif 'channel_post' in update:
+                 logger.info(f"🔄 Bot traite post de canal via webhook")
+            elif 'edited_channel_post' in update:
+                 logger.info(f"🔄 Bot traite post de canal édité via webhook")
             
-            logger.info(f"Received update: {json.dumps(update, indent=2)}")
+            logger.debug(f"Received update: {json.dumps(update, indent=2)}")
 
-            # Use the advanced handlers for processing (they handle card predictions too)
+            # Use the advanced handlers for processing (délégation)
             self.handlers.handle_update(update)
             
-            # Log succès du traitement
             logger.info(f"✅ Update traité avec succès via webhook")
 
         except Exception as e:
             logger.error(f"❌ Error handling update via webhook: {e}")
 
-    def _process_card_predictions(self, message: Dict[str, Any]) -> None:
-        """Process message for card predictions"""
-        try:
-            chat_id = message['chat']['id']
-            chat_type = message['chat'].get('type', 'private')
+    # --- Méthodes API Directes (Requises par le schéma) ---
 
-            # Only process card predictions in groups/channels
-            if chat_type in ['group', 'supergroup', 'channel'] and 'text' in message:
-                text = message['text']
-
-                # Check if we should make a prediction
-                should_predict, game_number, combination = card_predictor.should_predict(text)
-
-                if should_predict and game_number is not None and combination is not None:
-                    prediction = card_predictor.make_prediction(game_number, combination)
-                    logger.info(f"Making prediction: {prediction}")
-
-                    # Send prediction to the chat
-                    self.send_message(chat_id, prediction)
-
-                # Check if this message verifies a previous prediction
-                verification_result = card_predictor.verify_prediction(text)
-                if verification_result:
-                    logger.info(f"Verification result: {verification_result}")
-
-                    if verification_result['type'] == 'update_message':
-                        # For webhook mode, just send the updated status as a new message
-                        self.send_message(chat_id, verification_result['new_message'])
-
-        except Exception as e:
-            logger.error(f"Error processing card predictions: {e}")
-
-    def handle_start_command(self, chat_id: int) -> None:
-        """Handle /start command by sending deployment zip file"""
-        try:
-            # Send initial message
-            self.send_message(
-                chat_id, 
-                "🚀 Preparing your deployment zip file... Please wait a moment."
-            )
-
-            # Check if deployment file exists
-            if not os.path.exists(self.deployment_file_path):
-                self.send_message(
-                    chat_id,
-                    "❌ Deployment file not found. Please contact the administrator."
-                )
-                logger.error(f"Deployment file {self.deployment_file_path} not found")
-                return
-
-            # Send the file
-            success = self.send_document(chat_id, self.deployment_file_path)
-
-            if success:
-                self.send_message(
-                    chat_id,
-                    "✅ Deployment zip file sent successfully!\n\n"
-                    "📋 Instructions:\n"
-                    "1. Download the zip file\n"
-                    "2. Extract it to your project directory\n"
-                    "3. Deploy to render.com\n"
-                    "4. Configure your environment variables\n\n"
-                    "Need help? Contact support!"
-                )
-            else:
-                self.send_message(
-                    chat_id,
-                    "❌ Failed to send deployment file. Please try again later."
-                )
-
-        except Exception as e:
-            logger.error(f"Error handling start command: {e}")
-            self.send_message(
-                chat_id,
-                "❌ An error occurred while processing your request. Please try again."
-            )
-
-    def send_message(self, chat_id: int, text: str) -> bool:
+    def send_message(self, chat_id: int, text: str, parse_mode: str = 'Markdown') -> bool:
         """Send text message to user"""
+        # Note: La méthode de handlers.py est utilisée pour la logique de prédiction/édition, 
+        # mais cette méthode publique est là pour respecter le schéma et les cas génériques.
         try:
             url = f"{self.base_url}/sendMessage"
             data = {
                 'chat_id': chat_id,
                 'text': text,
-                'parse_mode': 'HTML'
+                'parse_mode': parse_mode
             }
 
             response = requests.post(url, json=data, timeout=10)
             result = response.json()
 
             if result.get('ok'):
-                logger.info(f"Message sent successfully to chat {chat_id}")
+                logger.debug(f"Message sent successfully to chat {chat_id}")
                 return True
             else:
                 logger.error(f"Failed to send message: {result}")
@@ -145,9 +90,13 @@ class TelegramBot:
             return False
 
     def send_document(self, chat_id: int, file_path: str) -> bool:
-        """Send document file to user"""
+        """Send document file to user (Méthode incluse pour respecter le schéma)"""
         try:
             url = f"{self.base_url}/sendDocument"
+
+            if not os.path.exists(file_path):
+                logger.error(f"File not found for sending: {file_path}")
+                return False
 
             with open(file_path, 'rb') as file:
                 files = {
@@ -168,15 +117,10 @@ class TelegramBot:
                     logger.error(f"Failed to send document: {result}")
                     return False
 
-        except FileNotFoundError:
-            logger.error(f"File not found: {file_path}")
-            return False
-        except requests.exceptions.RequestException as e:
-            logger.error(f"Network error sending document: {e}")
-            return False
         except Exception as e:
             logger.error(f"Error sending document: {e}")
             return False
+
 
     def set_webhook(self, webhook_url: str) -> bool:
         """Set webhook URL for the bot"""
@@ -184,7 +128,7 @@ class TelegramBot:
             url = f"{self.base_url}/setWebhook"
             data = {
                 'url': webhook_url,
-                'allowed_updates': ['message', 'edited_message']
+                'allowed_updates': ['message', 'edited_message', 'channel_post', 'edited_channel_post']
             }
 
             response = requests.post(url, json=data, timeout=10)
@@ -220,3 +164,4 @@ class TelegramBot:
         except Exception as e:
             logger.error(f"Error getting bot info: {e}")
             return {}
+            
