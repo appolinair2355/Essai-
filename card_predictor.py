@@ -421,7 +421,7 @@ class CardPredictor:
         self._save_all_data()
         return prediction_text
         
-    def _verify_prediction_common(self, text: str, is_edited: bool = False) -> Optional[Dict]:
+        def _verify_prediction_common(self, text: str, is_edited: bool = False) -> Optional[Dict]:
         """Vérifie si le message contient le résultat pour une prédiction en attente (Q)."""
         game_number = self.extract_game_number(text)
         if not game_number or not self.predictions:
@@ -434,7 +434,7 @@ class CardPredictor:
             if prediction.get('status') != 'pending' or prediction.get('predicted_costume') != 'Q':
                 continue
 
-                        verification_offset = game_number - predicted_game
+            verification_offset = game_number - predicted_game
             
             # Vérification pour N, N+1, N+2 par rapport à la prédiction
             if 0 <= verification_offset <= 2:
