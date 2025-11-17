@@ -125,12 +125,17 @@ class CardPredictor:
         self._save_channels_config()
         return True
 
-    # --- Logique d'Extraction (Inchangée) ---
+    # --- Logique d'Extraction (Mise à jour pour #N et #n) ---
     def extract_game_number(self, message: str) -> Optional[int]:
-        """Extrait le numéro du jeu."""
-        match = re.search(r'#N(\d+)\.', message)
+        """Extrait le numéro du jeu, reconnaissant #N et #n."""
+        
+        # Recherche #N ou #n en ignorant la casse (re.IGNORECASE)
+        match = re.search(r'#N(\d+)\.', message, re.IGNORECASE) 
+        
         if not match:
+            # Recherche le format de prédiction (🔵N🔵)
             match = re.search(r'🔵(\d+)🔵', message)
+            
         if match:
             try:
                 return int(match.group(1))
@@ -178,7 +183,7 @@ class CardPredictor:
                 
         return None
 
-    # --- Logique INTER (Mode Intelligent) ---
+    # --- Logique INTER (Mode Intelligent) - MISE À JOUR AVEC ANTI-DOUBLON ---
     def collect_inter_data(self, game_number: int, message: str):
         """Collecte les données (Déclencheur à N-2, Dame Q à N) selon la logique séquentielle."""
         first_group_content = self.extract_first_parentheses_content(message)
@@ -206,6 +211,17 @@ class CardPredictor:
             if trigger_entry:
                 trigger_cards = trigger_entry['cartes']
                 
+                # --- VÉRIFICATION ANTI-DOUBLON ---
+                is_duplicate = any(
+                    entry.get('numero_resultat') == game_number 
+                    for entry in self.inter_data
+                )
+                
+                if is_duplicate:
+                    logger.warning(f"❌ INTER Data Ignoré: Doublon détecté pour le numéro de résultat N={game_number}. Non ajouté à l'historique INTER.")
+                    return # Arrête le processus pour éviter l'enregistrement en double
+                # --------------------------------
+
                 new_entry = {
                     'numero_resultat': game_number,
                     'declencheur': trigger_cards,
@@ -311,7 +327,7 @@ class CardPredictor:
             return True
         return time.time() > (self.last_prediction_time + self.prediction_cooldown)
 
-    # --- NOUVELLES MÉTHODES DE FILTRAGE (CORRIGÉES POUR L'INDENTATION) ---
+    # --- MÉTHODES DE FILTRAGE ---
     def has_pending_indicators(self, message: str) -> bool:
         """
         Vérifie la présence des indicateurs d'état temporaire (🕐 ou ⏰).
@@ -324,8 +340,9 @@ class CardPredictor:
         Vérifie la présence des indicateurs de succès explicites (✅ ou 🔰).
         """
         return '✅' in message or '🔰' in message
-    # --------------------------------------------------------------------
+    # ----------------------------
 
+    # (La suite de cette partie est dans la Partie 2)
     def should_predict(self, message: str) -> Tuple[bool, Optional[int], Optional[str]]:
         """Détermine si une prédiction doit être faite."""
         if not self.target_channel_id:
@@ -353,40 +370,88 @@ class CardPredictor:
 
         if first_group_content:
             card_details = self.extract_card_details(first_group_content)
+            card_values = [v for v, c in card_details]
+            
+            # Extraction du second groupe pour les règles statiques 2 et 3
+            second_parentheses_pattern = r'\(([^)]*)\)'
+            all_matches = re.findall(second_parentheses_pattern, message)
+            second_group_content = all_matches[1] if len(all_matches) > 1 else ""
+            second_group_details = self.extract_card_details(second_group_content)
+            second_group_values = [v for v, c in second_group_details]
+            
+            
+            # --- LOGIQUE DE PRÉDICTION ---
             
             # 1. LOGIQUE INTER (PRIORITÉ)
             if self.is_inter_mode_active and self.smart_rules:
                 current_trigger_cards = self.get_first_two_cards(first_group_content)
                 current_trigger_tuple = tuple(current_trigger_cards)
                 
-                # Vérifie si le déclencheur actuel correspond à une règle intelligente
                 if any(tuple(rule['cards']) == current_trigger_tuple for rule in self.smart_rules):
                     predicted_value = "Q"
                     logger.info(f"🔮 PRÉDICTION INTER: Déclencheur {current_trigger_cards} trouvé dans les règles intelligentes.")
             
+            
             # 2. LOGIQUE STATIQUE (SEULEMENT SI INTER N'A PAS DÉJÀ PRÉDIT)
             if not predicted_value:
-                card_values = [v for v, c in card_details]
+                # Cartes fortes (A, K, Q, J)
+                all_high_cards = HIGH_VALUE_CARDS
                 
                 # Règle Statique 1: Deux Valets (J)
                 if card_values.count('J') >= 2:
                     predicted_value = "Q"
-                    logger.info("🔮 PRÉDICTION STATIQUE: Deux Valets (J) trouvés.")
+                    logger.info("🔮 PRÉDICTION STATIQUE 1: Deux Valets (J) trouvés.")
 
                 # Règle Statique 2: Un Valet (J) + pas de carte forte dans le 2e groupe
                 elif card_values.count('J') == 1:
-                    second_parentheses_pattern = r'\(([^)]*)\)'
-                    all_matches = re.findall(second_parentheses_pattern, message)
-                    second_group_content = all_matches[1] if len(all_matches) > 1 else ""
-
-                    second_group_details = self.extract_card_details(second_group_content)
-                    second_group_values = [v for v, c in second_group_details]
-
-                    has_high_value_in_second = any(v in HIGH_VALUE_CARDS for v in second_group_values)
+                    has_high_value_in_second = any(v in all_high_cards for v in second_group_values)
                     
                     if not has_high_value_in_second:
                         predicted_value = "Q"
-                        logger.info("🔮 PRÉDICTION STATIQUE: Un Valet (J) sans carte forte dans le 2e groupe.")
+                        logger.info("🔮 PRÉDICTION STATIQUE 2: Un Valet (J) sans carte forte dans le 2e groupe.")
+
+
+                # -----------------------------------------------------------
+                # NOUVELLE RÈGLE STATIQUE 3: G1 (K+J) ET G2 (Faible)
+                # -----------------------------------------------------------
+                
+                # Condition G1: Contient K ET J (Combinaison)
+                has_k_in_g1 = 'K' in card_values
+                has_j_in_g1 = 'J' in card_values
+                
+                # Condition G2: AUCUNE carte de haute valeur (A, K, Q, J)
+                is_g2_weak = not any(v in all_high_cards for v in second_group_values)
+
+                if has_k_in_g1 and has_j_in_g1 and is_g2_weak:
+                    predicted_value = "Q"
+                    logger.info("🔮 PRÉDICTION STATIQUE 3: G1 (K+J) et G2 (Faible) combinés.")
+
+                # -----------------------------------------------------------
+                # NOUVELLE RÈGLE STATIQUE 4: Deux groupes faibles consécutifs
+                # -----------------------------------------------------------
+                elif not predicted_value:
+                    # Les cartes fortes pour cette règle sont: A, K, Q, J
+                    is_current_g1_weak = not any(v in all_high_cards for v in card_values)
+                    
+                    if is_current_g1_weak:
+                        # Vérifier l'historique du jeu précédent (N-1)
+                        previous_game_number = game_number - 1
+                        previous_entry = self.sequential_history.get(previous_game_number)
+
+                        if previous_entry:
+                            # Le sequential_history stocke les deux premières cartes du premier groupe.
+                            previous_cards = previous_entry['cartes'] 
+                            
+                            # Extraire les valeurs (ex: '9', '7')
+                            previous_values = [re.match(r'(\d+|[AKQJ])', c).group(1) for c in previous_cards if re.match(r'(\d+|[AKQJ])', c)]
+                            
+                            is_previous_g1_weak = not any(v in all_high_cards for v in previous_values)
+                            
+                            if is_previous_g1_weak:
+                                predicted_value = "Q"
+                                logger.info(f"🔮 PRÉDICTION STATIQUE 4: G1 faible consécutif détecté (Jeu {previous_game_number} et {game_number}).")
+
+        # ... (Fin de should_predict)
 
         if predicted_value and not self.can_make_prediction():
             logger.warning("⏳ PRÉDICTION ÉVITÉE: En période de 'cooldown'.")
@@ -471,3 +536,4 @@ class CardPredictor:
                         'new_message': updated_message,
                     }
         return None
+        
