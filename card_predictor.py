@@ -420,16 +420,16 @@ class CardPredictor:
 
         return False, None, None, None
         
-    def make_prediction(self, game_number: int, predicted_value: str, confidence: str) -> str:
-        """Génère le message de prédiction et l'enregistre avec la confiance."""
-        target_game = game_number + 2
-        
-        confidence_tag = f" ({confidence})" if confidence else "" # <-- Crée l'étiquette de confiance
-        prediction_text = f"🔵{target_game}🔵:Valeur Q statut :⏳{confidence_tag}" # <-- AJOUTE l'étiquette au message initial
-
-        self.predictions[target_game] = {
-            'predicted_costume': 'Q',
-            'status': 'pending',
-            'predicted_from': game_number,
-            'verification_count': 0,
-      
+        def make_prediction(self, game: int, value: str, confidence: str) -> str:
+        target = game + 2
+        text = f"🔵{target}🔵:Valeur Q statut :⏳" + (f" ({confidence})" if confidence else "")
+        self.pred[target] = {
+            "predicted_costume": value,
+            "status": "pending",
+            "predicted_from": game,
+            "verification_count": 0,
+            "message_text": text,
+            "message_id": None,
+            "confidence": confidence, # <-- Assurez-vous qu'il y a une virgule AVANT cette ligne si elle est présente
+        } # <-- **C'est ce crochet qui doit être présent et qui a probablement été oublié**
+        # ...
